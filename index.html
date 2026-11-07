@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OO設計パターン選定デシジョンツリー</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center py-6 px-4">
+<h1 class="text-2xl font-bold mb-2 text-indigo-400">OO設計パターン選定デシジョンツリー</h1>
+<p class="text-sm text-gray-400 mb-6">質問に答えると最適なGoFデザインパターンを推薦します</p>
+<div id="questionArea" class="w-full max-w-xl"></div>
+<div id="resultArea" class="w-full max-w-xl hidden"></div>
+<div id="detailModal" class="fixed inset-0 bg-black bg-opacity-70 hidden flex items-center justify-center z-50" role="dialog" aria-modal="true">
+  <div class="bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4">
+    <h3 id="modalTitle" class="text-lg font-bold text-indigo-300 mb-2"></h3>
+    <div id="modalBody" class="text-sm text-gray-300 space-y-2"></div>
+    <button id="closeModal" class="mt-4 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 rounded text-sm">閉じる</button>
+  </div>
+</div>
+<script>
+const patterns = {
+  factory_method: { name: 'Factory Method', category: '生成', desc: 'サブクラスに生成を委譲。フレームワーク設計に最適。', hint: 'interface Product { ... }\nclass ConcreteCreator extends Creator {\n  createProduct(): Product { ... }\n}', uml: 'Creator→factoryMethod()→ConcreteCreator' },
+  abstract_factory: { name: 'Abstract Factory', category: '生成', desc: '関連するオブジェクト群をまとめて生成するインターフェース。', hint: 'interface GUIFactory {\n  createButton(): Button;\n  createDialog(): Dialog;\n}', uml: 'AbstractFactory→ConcreteFactory→Products' },
+  builder: { name: 'Builder', category: '生成', desc: '複雑なオブジェクトの構築手順を分離。', hint: 'builder.setPartA().setPartB().build()', uml: 'Director→Builder→ConcreteBuilder→Product' },
+  prototype: { name: 'Prototype', category: '生成', desc: '既存インスタンスをコピーして新オブジェクト生成。', hint: 'interface Cloneable { clone(): this; }', uml: 'Client→Prototype→clone()→ConcretePrototype' },
+  singleton: { name: 'Singleton', category: '生成', desc: 'インスタンスを1つに限定しグローバルアクセスを提供。', hint: 'static getInstance(): Singleton {\n  return this.instance ??= new Singleton();\n}', uml: 'Singleton→-instance: Singleton→+getInstance()' },
+  adapter: { name: 'Adapter', category: '構造', desc: '互換性のないインターフェースを変換して連携。', hint: 'class Adapter implements Target {\n  constructor(private adaptee: Adaptee) {}\n  request() { this.adaptee.specificRequest(); }\n}', uml: 'Target←Adapter→Adaptee' },
+  bridge: { name: 'Bridge', category: '構造', desc: '抽象と実装を分離して独立に変化させる。', hint: 'abstract class Abstraction {\n  constructor(protected impl: Implementation) {}\n}', uml: 'Abstraction→Implementation (別ヒエラルキー)' },
+  composite: { name: 'Composite', category: '構造', desc: 'ツリー構造でオブジェクトを再帰的に扱う。', hint: 'interface Component { operation(): void; }\nclass Composite extends Component {\n  children: Component[];\n}', uml: 'Component←Leaf / Component←Composite→children:Component' },
+  decorator: { name: 'Decorator', category: '構造', desc: 'オブジェクトに動的に責任を追加する。', hint: 'class LoggingDecorator extends Component {\n  constructor(private inner: Component) {}\n}', uml: 'Component←ConcreteComponent / Component←Decorator→Component' },
+  facade: { name: 'Facade', category: '構造', desc: 'サブシステムへの統一されたインターフェース。', hint: 'class Facade {\n  operation() { subA.op(); subB.op(); }\n}', uml: 'Client→Facade→{SubsystemA,SubsystemB}' },
+  proxy: { name: 'Proxy', category: '構造', desc: '別オブジェクトへのアクセス制御代理。', hint: 'class Proxy implements Subject {\n  request() { /* access control */ this.real.request(); }\n}', uml: 'Subject←RealSubject / Subject←Proxy→RealSubject' },
+  observer: { name: 'Observer', category: '振る舞い', desc: '状態変化を複数オブジェクトに通知するパブサブ機構。', hint: 'subject.subscribe(observer)\nsubject.notify() → observer.update()', uml: 'Subject→observers:Observer[]→notify()→update()' },
+  strategy: { name: 'Strategy', category: '振る舞い', desc: 'アルゴリズムをカプセル化して切り替え可能にする。', hint: 'context.setStrategy(new ConcreteStrategy())\ncontext.executeStrategy()', uml: 'Context→Strategy←ConcreteStrategyA/B' },
+  command: { name: 'Command', category: '振る舞い', desc: 'リクエストをオブジェクト化してキュー・Undo対応。', hint: 'interface Command { execute(): void; undo(): void; }', uml: 'Invoker→Command←ConcreteCommand→Receiver' },
+  template_method: { name: 'Template Method', category: '振る舞い', desc: 'スーパークラスでアルゴリズムの骨格を定義。', hint: 'abstract class AbstractClass {\n  templateMethod() { step1(); step2(); }\n  abstract step1(): void;\n}', uml: 'AbstractClass→templateMethod()→step1()/step2() ← ConcreteClass' },
+  iterator: { name: 'Iterator', category: '振る舞い', desc: 'コレクションの走査方法を統一インターフェース化。', hint: 'for (const item of collection) { ... }', uml: 'Iterable→[Symbol.iterator]()→Iterator→next()' },
+  state: { name: 'State', category: '振る舞い', desc: '状態に応じてオブジェクトの振る舞いを変化させる。', hint: 'context.setState(new ConcreteState())\ncontext.request() → state.handle()', uml: 'Context→State←ConcreteStateA/B' },
+};
+
+const tree = {
+  q: 'オブジェクトの生成に関する問題ですか？',
+  yes: {
+    q: '生成するオブジェクトの種類を実行時に決める必要がありますか？',
+    yes: {
+      q: '互いに関連するオブジェクト群をまとめて生成しますか？',
+      yes: { result: 'abstract_factory' },
+      no: {
+        q: 'サブクラスに生成を委ねますか？',
+        yes: { result: 'factory_method' },
+        no: { result: 'prototype' }
+      }
+    },
+    no: {
+      q: 'オブジェクトの構築手順が複雑ですか？',
+      yes: { result: 'builder' },
+      no: { result: 'singleton' }
+    }
+  },
+  no: {
+    q: 'クラスやオブジェクトの構造（組み合わせ）に関する問題ですか？',
+    yes: {
+      q: '互換性のないインターフェースを連携させたいですか？',
+      yes: { result: 'adapter' },
+      no: {
+        q: 'オブジェクトを再帰的なツリー構造で扱いますか？',
+        yes: { result: 'composite' },
+        no: {
+          q: '動的に機能を追加・拡張したいですか？',
+          yes: { result: 'decorator' },
+          no: {
+            q: '抽象と実装を独立して変化させたいですか？',
+            yes: { result: 'bridge' },
+            no: {
+              q: '複雑なサブシステムを隠蔽したいですか？',
+              yes: { result: 'facade' },
+              no: { result: 'proxy' }
+            }
+          }
+        }
+      }
+    },
+    no: {
+      q: 'オブジェクト間のコミュニケーション（振る舞い）の問題ですか？',
+      yes: {
+        q: '状態変化を複数のオブジェクトに通知しますか？',
+        yes: { result: 'observer' },
+        no: {
+          q: 'アルゴリズムを実行時に切り替えますか？',
+          yes: { result: 'strategy' },
+          no: {
+            q: '操作を取り消し（Undo）できるようにしますか？',
+            yes: { result: 'command' },
+            no: {
+              q: 'オブジェクトの状態によって振る舞いが変わりますか？',
+              yes: { result: 'state' },
+              no: {
+                q: 'アルゴリズムの骨格を固定してサブクラスで手順を定義しますか？',
+                yes: { result: 'template_method' },
+                no: { result: 'iterator' }
+              }
+            }
+          }
+        }
+      },
+      no: { result: 'strategy' }
+    }
+  }
+};
+
+let history = [];
+let currentNode = tree;
+
+function renderQuestion(node) {
+  const area = document.getElementById('questionArea');
+  const step = history.length + 1;
+  area.innerHTML = `
+    <div class="bg-gray-800 rounded-xl p-5 shadow">
+      <div class="text-xs text-gray-500 mb-2">質問 ${step}</div>
+      <p class="text-base font-medium text-white mb-5">${node.q}</p>
+      <div class="flex gap-3">
+        <button id="yesBtn" class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-semibold">はい（Yes）</button>
+        <button id="noBtn" class="flex-1 py-3 bg-gray-600 hover:bg-gray-500 rounded-lg font-semibold">いいえ（No）</button>
+      </div>
+      ${history.length > 0 ? '<button id="backBtn" class="mt-3 text-xs text-gray-500 hover:text-gray-300">← 戻る</button>' : ''}
+    </div>
+    <div class="mt-3 text-xs text-gray-600">答えた質問: ${history.length}問</div>
+  `;
+  document.getElementById('yesBtn').addEventListener('click', () => advance('yes'));
+  document.getElementById('noBtn').addEventListener('click', () => advance('no'));
+  if (history.length > 0) {
+    document.getElementById('backBtn').addEventListener('click', () => {
+      currentNode = history.pop();
+      renderQuestion(currentNode);
+    });
+  }
+}
+
+function advance(dir) {
+  history.push(currentNode);
+  const next = currentNode[dir];
+  if (next.result) {
+    showResult(next.result);
+  } else {
+    currentNode = next;
+    renderQuestion(currentNode);
+  }
+}
+
+function showResult(patternKey) {
+  const p = patterns[patternKey];
+  document.getElementById('questionArea').innerHTML = '';
+  const area = document.getElementById('resultArea');
+  area.classList.remove('hidden');
+  area.innerHTML = `
+    <div class="bg-indigo-900 border border-indigo-500 rounded-xl p-6 shadow-lg">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="text-xs px-2 py-1 rounded bg-indigo-600 text-white">${p.category}パターン</span>
+        <h2 class="text-xl font-bold text-indigo-300">${p.name}</h2>
+      </div>
+      <p class="text-gray-200 mb-4">${p.desc}</p>
+      <div class="bg-gray-900 rounded p-3 font-mono text-xs text-green-300 mb-4">${p.uml}</div>
+      <div class="flex gap-3">
+        <button id="detailBtn" class="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 rounded text-sm">実装ヒントを見る</button>
+        <button id="retryBtn" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm">最初からやり直す</button>
+      </div>
+    </div>
+    <div class="mt-4">
+      <p class="text-xs text-gray-500 mb-2">他のパターン一覧:</p>
+      <div class="flex flex-wrap gap-2">
+        ${Object.entries(patterns).map(([k,v]) => `<button class="pat-btn text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 ${k===patternKey?'ring-1 ring-indigo-400':''}" data-key="${k}">${v.name}</button>`).join('')}
+      </div>
+    </div>
+  `;
+  document.getElementById('detailBtn').addEventListener('click', () => openModal(patternKey));
+  document.getElementById('retryBtn').addEventListener('click', reset);
+  area.querySelectorAll('.pat-btn').forEach(btn => {
+    btn.addEventListener('click', () => openModal(btn.dataset.key));
+  });
+}
+
+function openModal(key) {
+  const p = patterns[key];
+  document.getElementById('modalTitle').textContent = `${p.name} (${p.category})`;
+  document.getElementById('modalBody').innerHTML = `
+    <p>${p.desc}</p>
+    <div class="bg-gray-900 rounded p-3 font-mono text-xs text-green-300 mt-2 whitespace-pre">${p.hint}</div>
+    <p class="text-gray-400 mt-2">UML概要: ${p.uml}</p>
+  `;
+  document.getElementById('detailModal').classList.remove('hidden');
+}
+document.getElementById('closeModal').addEventListener('click', () => {
+  document.getElementById('detailModal').classList.add('hidden');
+});
+
+function reset() {
+  history = [];
+  currentNode = tree;
+  document.getElementById('resultArea').classList.add('hidden');
+  document.getElementById('resultArea').innerHTML = '';
+  renderQuestion(currentNode);
+}
+
+reset();
+</script>
+</body>
+</html>
